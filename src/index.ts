@@ -2,81 +2,69 @@ import * as fs from "node:fs";
 import * as cheerio from "cheerio";
 import { decryptHexWithKey } from "./decrypt.js";
 import chalk from 'chalk';
+import { fetchTurbovid, saveToFile } from "./util.js";
 
-let saveToFile = false;
+const logger = {
+    success: (str: string) => {
+        console.log(chalk.green.bold(str))
+    },
+};
 
-let CATFLIX_URL = "";
-let urlFound = false;
+async function cheerio_setup(url: string) {
+    if (!URL.canParse(url)) return null;
+    const html = await (await fetch(url)).text();
 
-process.argv.forEach((val) => {
-    if (URL.canParse(val) && !urlFound) {
-        CATFLIX_URL = val;
-        urlFound = true;
-    }
-});
-
-if (process.argv.includes("--save")) {
-    saveToFile = true;
+    return cheerio.load(html);
 }
 
-if (!urlFound) {
-    console.log(chalk.red.bold("Please provide a Catflix URL!"));
-    process.exit(1);
+export async function getEmbedURL(targetURL: string) {
+    const catflix$ = await cheerio_setup(targetURL);
+    if (!catflix$) throw new Error(`Failed to setup cheerio for ${targetURL}!`);
+    const catflix_data = catflix$("script").last().html()!;
+    const match = catflix_data.match(/main_origin\s*=\s*"(.*?)"/)!
+    if (!match) {
+        console.log("Catflix Data:\n" + catflix_data);
+        throw new Error("Failed to find main_origin data, something has gone wrong!")
+    }
+    return atob(match[1]);
 }
 
-console.log(chalk.grey.bold("Fetching Catflix URL..."))
-const catflix_html = await (await fetch(CATFLIX_URL)).text();
-const catflix$ = cheerio.load(catflix_html);
-const catflix_data = catflix$("script").last().html()!;
-const match = catflix_data.match(/main_origin\s*=\s*"(.*?)"/)!
-if (!match) {
-    console.log("Catflix Data:\n" + catflix_data);
-    throw new Error("Failed to find main_origin data, something has gone wrong!")
+export async function getEmbedInfo(embed_url: string) {
+    const embed$ = await cheerio_setup(embed_url);
+    if (!embed$) throw new Error(`Failed to setup cheerio for ${embed_url}!`);
+    const embed_data = embed$("body > script").html()!;
+
+    return {
+        apkey: embed_data.match(/const\s+apkey\s*=\s*"(.*?)";/)![1],
+        xxid: embed_data.match(/const\s+xxid\s*=\s*"(.*?)";/)![1],
+    }
 }
-const embed_url = atob(match[1]);
 
-if (!embed_url) throw new Error("Failed to get Embed URL!");
-
-console.log(chalk.grey.bold("Fetching Embed URL..."))
-const embed_html = await (await fetch(embed_url)).text();
-const embed$ = cheerio.load(embed_html);
-
-const embed_data = embed$("body > script").html()!;
-const apkey = embed_data.match(/const\s+apkey\s*=\s*"(.*?)";/)![1];
-const xxid = embed_data.match(/const\s+xxid\s*=\s*"(.*?)";/)![1]
-
-console.log(chalk.grey.bold("Fetching Juice Data..."))
-const juice = await (await fetch("https://turbovid.eu/api/cucked/juice_key", {
-    headers: {
-        referer: "https://turbovid.eu/"
-    }
-})).json();
-
-const the_juice = await (await fetch(`https://turbovid.eu/api/cucked/the_juice/?${apkey}=${xxid}`, {
-    headers: {
-        referer: embed_url
-    }
-})).json();
-
-const m3u8_url = decryptHexWithKey(the_juice.data, juice.juice)
-console.log(chalk.green.bold("Decrypted Stream URL!"))
-
-const base_m3u8 = m3u8_url.split("uwu.m3u8")[0];
-
-if (saveToFile) {
-    let m3u8_data = await (await fetch(m3u8_url, {
-        headers: {
-            referer: "https://turbovid.eu/"
-        }
-    })).text();
+export async function getJuiceData(apkey: string, xxid: string): Promise<JuiceData | null> {
+    const res = await Promise.all([
+        fetchTurbovid("https://turbovid.eu/api/cucked/juice_key", true),
+        fetchTurbovid(`https://turbovid.eu/api/cucked/the_juice/?${apkey}=${xxid}`, true)
+    ])
     
-    m3u8_data = m3u8_data.replace(/page-/gm, base_m3u8 + "page-");
-    m3u8_data = m3u8_data.replace(/img-/gm, base_m3u8 + "img-");
-    m3u8_data = m3u8_data.replace(/style-/gm, base_m3u8 + "style-");
+    if (!res[0] || !res[1]) {
+        console.error(chalk.red.bold("Failed to fetch either juice_key or the_juice! Check the console for more information..."));
+        return null;
+    }
+
+    return {
+        juice_key: res[0].juice,
+        the_juice: res[1].data
+    }
+}
+
+export async function decryptStreamURL(juice_info: JuiceData) {
+    return decryptHexWithKey(juice_info.the_juice, juice_info.juice_key);
+}
+
+export async function saveM3U8ToFile(m3u8_url: string) {
+    const base_m3u8 = m3u8_url.split("uwu.m3u8")[0];
+    const m3u8_data = await saveToFile(m3u8_url, base_m3u8);
     
     fs.writeFileSync("data.m3u8", m3u8_data);
-    console.log(chalk.green.bold("Successfully wrote stream data to file! Enjoy :)"))
+    logger.success("Successfully wrote stream data to file! Enjoy :)");
 }
-
-
-console.log(chalk.green("Stream with MPV:"), `${chalk.green.bold(`mpv --http-header-fields="Referer: https://turbovid.eu/" ${m3u8_url}`)}`);

@@ -1,10 +1,10 @@
 function hexToBinary(data: string) {
-    let str = "";
-    for (let i = 0; i < data.length; i += 2) {
-      str += String.fromCharCode(parseInt(data.substr(i, 2), 16));
-    }
-    return str;
+  let str = "";
+  for (let i = 0; i < data.length; i += 2) {
+      str += String.fromCharCode(parseInt(data.slice(i, i + 2), 16));
   }
+  return str;
+}
 function xorDecrypt(data: string, key: string) {
     let str = "";
     for (let i = 0; i < data.length; i++) {
