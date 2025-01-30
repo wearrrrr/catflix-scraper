@@ -1,5 +1,7 @@
+import * as fs from "node:fs";
 import chalk from "chalk";
-import { getEmbedURL, getEmbedInfo, getJuiceData, decryptStreamURL } from ".";
+import { getEmbedURL, getEmbedInfo, getJuiceData, decryptStreamURL } from "./index.js";
+import { saveToFile } from "./util.js";
 
 const logger = {
     info: (str: string) => {
@@ -32,6 +34,14 @@ function parseArgv(argv: string[]) {
         console.log(chalk.red.bold("Please provide a Catflix URL!"));
         process.exit(1);
     }
+}
+
+async function saveM3U8ToFile(m3u8_url: string) {
+    const base_m3u8 = m3u8_url.split("uwu.m3u8")[0];
+    const m3u8_data = await saveToFile(m3u8_url, base_m3u8);
+    
+    fs.writeFileSync("data.m3u8", m3u8_data);
+    logger.success("Successfully wrote stream data to file! Enjoy :)");
 }
 
 parseArgv(process.argv);

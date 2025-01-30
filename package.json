@@ -4,7 +4,7 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "start": "tsc && node dist/src/index.js",
+    "start": "tsc && node dist/src/impl.js",
     "test": "vitest ./test/"
   },
   "keywords": [],
